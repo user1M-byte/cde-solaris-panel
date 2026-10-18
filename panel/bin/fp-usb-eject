@@ -1,0 +1,43 @@
+#!/usr/dt/bin/dtksh
+# fp-usb-eject - "Safe eject" in the USB control's drawer: a CDE dialog listing the mounted
+# USB drive(s); pick one and press "Safe eject". Uses an optional /usr/local/bin/usb-eject helper
+# (sync, unmount, power off) when present, else udisksctl unmount + power-off.
+# Refuses (and says why) if the drive is busy. Never cd's into the mount point.
+LIST=$("$HOME/bin/fp-usb-scan" 2>/dev/null | awk -F'|' '$2!=""')
+if [ -z "$LIST" ]; then exec "$HOME/bin/fp-column-popup" "USB drive" "No USB drive is mounted." info; fi
+do_eject() {
+    XmSelectionBoxGetChild TXT $DLG DIALOG_TEXT; XmTextGetString SEL $TXT
+    LINE=$(printf '%s\n' "$LIST" | awk -F'|' -v s="$SEL" '$2==s' | head -1)
+    [ -z "$LINE" ] && { "$HOME/bin/fp-column-popup" "USB drive" "Pick a drive from the list first." error; return; }
+    DEV=${LINE%%|*}; REST=${LINE#*|}; MNT=${REST%%|*}
+    if [ -x /usr/local/bin/usb-eject ]; then OUT=$(/usr/local/bin/usb-eject "$MNT" 2>&1); RC=$?
+    else
+        DISK=/dev/$(lsblk -no PKNAME "$DEV" | head -1); [ "$DISK" = /dev/ ] && DISK=$DEV
+        OUT=$(udisksctl unmount -b "$DEV" --no-user-interaction 2>&1) && OUT="$OUT
+$(udisksctl power-off -b "$DISK" --no-user-interaction 2>&1)"; RC=$?
+    fi
+    if mountpoint -q "$MNT" 2>/dev/null && [ -x /usr/local/bin/usb-eject ]; then   # e.g. sudo refused: try udisks
+        OUT="$OUT
+$(udisksctl unmount -b "$DEV" --no-user-interaction 2>&1)"
+        mountpoint -q "$MNT" 2>/dev/null || { DISK=/dev/$(lsblk -no PKNAME "$DEV" | head -1); udisksctl power-off -b "$DISK" --no-user-interaction >/dev/null 2>&1; }
+    fi
+    if mountpoint -q "$MNT" 2>/dev/null; then
+        "$HOME/bin/fp-column-popup" "USB drive" "Not ejected - $MNT is still in use (close its windows/files and try again).
+$(printf '%s\n' "$OUT" | tail -5)" error; exit 1
+    fi
+    "$HOME/bin/fp-column-popup" "USB drive" "$(basename "$MNT") is safe to remove." stay; exit 0
+}
+XtInitialize TOP fpUsbEject FpUsbEject
+ITEMS=$(printf '%s\n' "$LIST" | awk -F'|' '{print $2}' | paste -sd, -)
+XmCreateSelectionDialog DLG $TOP dlg dialogTitle:"Safe eject USB drive" \
+    listLabelString:"Mounted USB drives:" selectionLabelString:"Drive to eject:" \
+    okLabelString:"Safe eject" cancelLabelString:"Cancel" mustMatch:true
+XmSelectionBoxGetChild LST $DLG DIALOG_LIST
+IFS=,; for i in $ITEMS; do XmListAddItem $LST 0 "$i"; done; unset IFS
+XmListSelectPos $LST 1 true
+XmSelectionBoxGetChild H $DLG DIALOG_HELP_BUTTON; XtUnmanageChild $H
+XmSelectionBoxGetChild A $DLG DIALOG_APPLY_BUTTON; XtUnmanageChild $A
+XtAddCallback $DLG okCallback do_eject
+XtAddCallback $DLG cancelCallback "exit 0"
+XtManageChild $DLG
+XtMainLoop

@@ -1,0 +1,13 @@
+#!/usr/dt/bin/dtksh
+# fp-column-popup "title" "message" [info|error|stay] - CDE (Motif) message box used by the
+# Front Panel column (VPN, Weather) and the USB dock. "info" closes itself after 6 s.
+TITLE=${1:-Front Panel}; MSG=${2:-}; KIND=${3:-info}
+XtInitialize TOP fpColumnPopup FpColumnPopup
+if [ "$KIND" = error ]; then XmCreateErrorDialog DLG $TOP dlg messageString:"$MSG" dialogTitle:"$TITLE"
+else XmCreateInformationDialog DLG $TOP dlg messageString:"$MSG" dialogTitle:"$TITLE"; fi
+XmMessageBoxGetChild C $DLG DIALOG_CANCEL_BUTTON; XtUnmanageChild $C
+XmMessageBoxGetChild H $DLG DIALOG_HELP_BUTTON;   XtUnmanageChild $H
+XtAddCallback $DLG okCallback "exit 0"
+XtManageChild $DLG
+[ "$KIND" = info ] && XtAddTimeOut TID 6000 "exit 0"
+XtMainLoop

@@ -1,0 +1,4 @@
+#!/bin/sh
+# fp-launcher - top-left grid cell. Runs FP_LAUNCHER_CMD from ~/.config/cde-solaris-panel/panel.conf.
+. "$HOME/bin/fp-conf"
+exec sh -c "$FP_LAUNCHER_CMD"

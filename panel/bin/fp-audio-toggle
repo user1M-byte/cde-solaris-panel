@@ -1,0 +1,48 @@
+#!/bin/sh
+# fp-audio-toggle - CDE Front Panel "Sound" control (added 2026-10-18).
+# 1) makes sure the HDMI IEC958 switch is on, 2) toggles mute on the default
+# sink, 3) updates the panel state file, 4) shows a short popup.
+# Usage: fp-audio-toggle [--dry-run] [mute|unmute]   (also FP_AUDIO_DRYRUN=1)
+#   --dry-run: change nothing; log what would run and flip only the state file.
+XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}; export XDG_RUNTIME_DIR
+STATE_DIR=${FP_AUDIO_STATE_DIR:-$HOME/.dt/audio-state}
+STATE=$STATE_DIR/unmuted          # non-empty = unmuted (speaker with waves)
+LOG=$STATE_DIR/toggle.log
+DRY=${FP_AUDIO_DRYRUN:-0}
+[ "$1" = "--dry-run" ] && { DRY=1; shift; }
+export FP_AUDIO_DRYRUN=$DRY
+mkdir -p "$STATE_DIR"
+setstate() { tmp=$STATE.$$; if [ "$1" = unmuted ]; then echo unmuted > "$tmp"; else : > "$tmp"; fi; mv -f "$tmp" "$STATE"; }
+muted() { pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null | awk '{print $2}'; }   # yes | no
+
+"$HOME/bin/fp-audio-hdmi-on"
+
+if [ "$DRY" = 1 ] && [ -e "$STATE" ]; then
+    [ -s "$STATE" ] && cur=no || cur=yes
+else
+    cur=$(muted)
+fi
+case "$1" in
+    mute) want=1 ;; unmute) want=0 ;;
+    *) [ "$cur" = yes ] && want=0 || want=1 ;;
+esac
+[ $want = 1 ] && word=MUTED || word=ON
+
+if [ "$DRY" = 1 ]; then
+    echo "$(date '+%F %T') DRY-RUN would run: pactl set-sink-mute @DEFAULT_SINK@ $want" >> "$LOG"
+    [ $want = 1 ] && setstate muted || setstate unmuted
+    msg="Sound: $word  (dry run - nothing changed)"
+else
+    if pactl set-sink-mute @DEFAULT_SINK@ $want 2>>"$LOG"; then
+        echo "$(date '+%F %T') pactl set-sink-mute @DEFAULT_SINK@ $want: ok" >> "$LOG"
+    else
+        echo "$(date '+%F %T') pactl set-sink-mute @DEFAULT_SINK@ $want: FAILED" >> "$LOG"
+        "$HOME/bin/fp-audio-popup" "Could not change mute.\nSee $LOG" error >/dev/null 2>&1
+        exit 1
+    fi
+    [ "$(muted)" = yes ] && { setstate muted; word=MUTED; } || { setstate unmuted; word=ON; }
+    msg="Sound is now $word"
+fi
+# Foreground on purpose: dtexec cleans up background children when we exit.
+"$HOME/bin/fp-audio-popup" "$msg" >/dev/null 2>&1
+exit 0

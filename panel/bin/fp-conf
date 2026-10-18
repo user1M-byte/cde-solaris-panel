@@ -1,0 +1,11 @@
+# sourced by the panel scripts: loads ~/.config/cde-solaris-panel/panel.conf if present
+FP_CONF=${FP_CONF:-$HOME/.config/cde-solaris-panel/panel.conf}
+[ -r "$FP_CONF" ] && . "$FP_CONF"
+: "${FP_LAUNCHER_LABEL:=Terminal}" "${FP_LAUNCHER_CMD:=/usr/dt/bin/dtterm}"
+: "${FP_SVC_LABEL:=Local AI}" "${FP_SVC_SYSTEM_UNITS:=}" "${FP_SVC_USER_UNITS:=}" "${FP_SVC_CONTAINERS:=}"
+: "${FP_VPN_NAME:=VPN}"
+if [ -z "${FP_VPN_STATUS_CMD:-}" ] && command -v expressvpnctl >/dev/null 2>&1; then
+    FP_VPN_STATUS_CMD="expressvpnctl get connectionstate"
+    FP_VPN_UP_CMD=${FP_VPN_UP_CMD:-"expressvpnctl connect"}
+    FP_VPN_DOWN_CMD=${FP_VPN_DOWN_CMD:-"expressvpnctl disconnect"}
+fi

@@ -1,0 +1,31 @@
+/* XPM */
+/* cde-solaris-panel icon, original artwork in grey CDE style */
+/* v3: Fplock-style bevel (light top/left, dark bottom/right) */
+static char * FpwifiGreyOn_t[] = {
+"16 16 10 1 0 0",
+"  s none m none c none",
+". s iconGray1 m white c #dededededede",
+"# s iconGray3 m white c #adadadadadad",
+"o s iconGray6 m black c #636363636363",
+"+ s topShadowColor m white c #bdbdbdbdbdbd",
+"@ s bottomShadowColor m black c #636363636363",
+"$ m black c #6b8f6b",
+"L s iconGray1 m white c #dededededede",
+"I s iconGray5 m black c #737373737373",
+"D s iconGray7 m black c #424242424242",
+"          $     ",
+"          $$$   ",
+"            $$  ",
+"         $$$ $  ",
+"  @@@   @L$$ $$ ",
+" @LLL@ @LD+     ",
+" @LDIL@LDD+     ",
+" @L#LILD++      ",
+" @L#.LID@       ",
+"  @L..LIL@      ",
+"   @L#.LIL+     ",
+"    @LL#LD+     ",
+"    @L#LD+      ",
+"   @LILID@@     ",
+"  @LDDDDDLL+    ",
+"   ++++++++     "};

@@ -1,0 +1,22 @@
+# cde-solaris-panel settings. install.sh copies this to ~/.config/cde-solaris-panel/panel.conf
+# (only if that file does not exist yet). It is plain sh, sourced by the panel scripts.
+
+# --- Launcher (top-left grid cell) ------------------------------------------------------
+FP_LAUNCHER_LABEL="Terminal"
+FP_LAUNCHER_CMD="/usr/dt/bin/dtterm"          # any command, e.g. "firefox" or "/usr/bin/myapp"
+
+# --- Services toggle ("Local AI" cell) --------------------------------------------------
+# Starts all of these when everything is off, stops all of them when anything is on.
+# Leave all three empty to make the cell show a "not configured" note.
+FP_SVC_LABEL="Local AI"
+FP_SVC_SYSTEM_UNITS=""        # system units, via "sudo -n systemctl", e.g. "ollama"
+FP_SVC_USER_UNITS=""          # systemd --user units, e.g. "open-webui"
+FP_SVC_CONTAINERS=""          # docker containers (docker start/stop), e.g. "open-webui"
+
+# --- VPN cell (optional) ----------------------------------------------------------------
+# STATUS must print "Connected" (first line) when the VPN is up.
+# Empty = auto: use expressvpnctl if it is installed, otherwise the cell says "not configured".
+FP_VPN_NAME="VPN"
+FP_VPN_STATUS_CMD=""          # e.g. "expressvpnctl get connectionstate"
+FP_VPN_UP_CMD=""              # e.g. "expressvpnctl connect"
+FP_VPN_DOWN_CMD=""            # e.g. "expressvpnctl disconnect"

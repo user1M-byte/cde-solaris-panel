@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+# fp-usb-scan - print one line per USB storage filesystem: "device|mountpoint|label"
+# (mountpoint empty if not mounted). Read-only: only runs lsblk and reads /proc/mounts.
+#   fp-usb-scan --ro   only the MOUNTED ones that are mounted read-only (USB drawer Read/Write)
+# Test hook: with FP_USB_TEST=1, FP_USB_SCAN_DEVS=/dev/loopN,... lists exactly those devices
+# instead of the real USB drives (used for the loop-image tests on the test display).
+import json,os,subprocess,sys
+test=os.environ.get('FP_USB_TEST')=='1' and os.environ.get('FP_USB_SCAN_DEVS')
+want=set(test.split(',')) if test else None
+try: d=json.loads(subprocess.run(['lsblk','-J','-o','PATH,TRAN,TYPE,FSTYPE,MOUNTPOINT,LABEL,SIZE'],capture_output=True,text=True,timeout=10).stdout)
+except Exception: raise SystemExit
+ro=set()
+if '--ro' in sys.argv[1:]:
+    def unesc(s): return s.replace('\\040',' ').replace('\\011','\t').replace('\\012','\n').replace('\\134','\\')
+    for l in open('/proc/mounts'):
+        f=l.split()
+        if len(f)>3 and 'ro' in f[3].split(','): ro.add(unesc(f[1]))
+def walk(n,usb):
+    usb=usb or n.get('tran')=='usb'
+    kids=n.get('children') or []
+    ok=(n['path'] in want) if want is not None else usb
+    if ok and n.get('fstype') and n.get('type') in ('part','disk','crypt','loop'):
+        m=n.get('mountpoint') or ''
+        if '--ro' not in sys.argv[1:] or (m and m in ro):
+            print('%s|%s|%s'%(n['path'],m,(n.get('label') or n.get('size') or '').replace('|','/')))
+    for k in kids: walk(k,usb)
+for n in d.get('blockdevices',[]): walk(n,False)

@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+# fp-usb-ntfsflags DEVICE - READ-ONLY check of an NTFS volume's $Volume flags.
+# Prints "dirty" or "clean" (exit 0), "not-ntfs" (exit 2) or "unreadable" (exit 3).
+# Opens the device O_RDONLY and only reads the boot sector and MFT record 3. Never writes.
+import os,struct,sys
+try:
+    fd=os.open(sys.argv[1],os.O_RDONLY); b=os.pread(fd,512,0)
+    if b[3:11]!=b'NTFS    ': print('not-ntfs'); sys.exit(2)
+    bps=struct.unpack_from('<H',b,11)[0]; cs=bps*b[13]
+    mft=struct.unpack_from('<q',b,0x30)[0]*cs; c=struct.unpack_from('<b',b,0x40)[0]
+    rs=c*cs if c>0 else 1<<(-c); r=bytearray(os.pread(fd,rs,mft+3*rs))
+    if r[:4]!=b'FILE': raise ValueError
+    a=struct.unpack_from('<H',r,0x14)[0]
+    while a+8<=rs:
+        t,l=struct.unpack_from('<II',r,a)
+        if t==0xffffffff or l==0: break
+        if t==0x70:
+            vo=struct.unpack_from('<H',r,a+0x14)[0]
+            print('dirty' if struct.unpack_from('<H',r,a+vo+0x0a)[0]&1 else 'clean'); sys.exit(0)
+        a+=l
+    raise ValueError
+except SystemExit: raise
+except Exception: print('unreadable'); sys.exit(3)

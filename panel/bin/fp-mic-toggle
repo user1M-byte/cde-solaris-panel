@@ -1,0 +1,46 @@
+#!/bin/sh
+# fp-mic-toggle - CDE Front Panel "Mic" control (added 2026-10-18).
+# Toggles mute on the default source (internal mic) with pactl, updates the panel
+# state file and shows a short popup. Never changes the mic volume.
+# Usage: fp-mic-toggle [--dry-run] [mute|unmute]   (also FP_AUDIO_DRYRUN=1)
+#   --dry-run: change nothing; log what would run and flip only the state file.
+XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}; export XDG_RUNTIME_DIR
+STATE_DIR=${FP_AUDIO_STATE_DIR:-$HOME/.dt/audio-state}
+STATE=$STATE_DIR/mic-unmuted      # non-empty = mic unmuted (lit microphone)
+LOG=$STATE_DIR/toggle.log
+DRY=${FP_AUDIO_DRYRUN:-0}
+[ "$1" = "--dry-run" ] && { DRY=1; shift; }
+mkdir -p "$STATE_DIR"
+FP_POPUP_TITLE=Microphone; export FP_POPUP_TITLE
+setstate() { tmp=$STATE.$$; if [ "$1" = unmuted ]; then echo unmuted > "$tmp"; else : > "$tmp"; fi; mv -f "$tmp" "$STATE"; }
+muted() { pactl get-source-mute @DEFAULT_SOURCE@ 2>/dev/null | awk '{print $2}'; }   # yes | no
+
+if [ "$DRY" = 1 ] && [ -e "$STATE" ]; then
+    [ -s "$STATE" ] && cur=no || cur=yes
+else
+    cur=$(muted)
+fi
+case "$1" in
+    mute) want=1 ;; unmute) want=0 ;;
+    *) [ "$cur" = yes ] && want=0 || want=1 ;;
+esac
+[ $want = 1 ] && word=MUTED || word=ON
+
+if [ "$DRY" = 1 ]; then
+    echo "$(date '+%F %T') DRY-RUN would run: pactl set-source-mute @DEFAULT_SOURCE@ $want" >> "$LOG"
+    [ $want = 1 ] && setstate muted || setstate unmuted
+    msg="Microphone: $word  (dry run - nothing changed)"
+else
+    if pactl set-source-mute @DEFAULT_SOURCE@ $want 2>>"$LOG"; then
+        echo "$(date '+%F %T') pactl set-source-mute @DEFAULT_SOURCE@ $want: ok" >> "$LOG"
+    else
+        echo "$(date '+%F %T') pactl set-source-mute @DEFAULT_SOURCE@ $want: FAILED" >> "$LOG"
+        "$HOME/bin/fp-audio-popup" "Could not change microphone mute.\nSee $LOG" error >/dev/null 2>&1
+        exit 1
+    fi
+    [ "$(muted)" = yes ] && { setstate muted; word=MUTED; } || { setstate unmuted; word=ON; }
+    msg="Microphone is now $word"
+fi
+# Foreground on purpose: dtexec cleans up background children when we exit.
+"$HOME/bin/fp-audio-popup" "$msg" >/dev/null 2>&1
+exit 0

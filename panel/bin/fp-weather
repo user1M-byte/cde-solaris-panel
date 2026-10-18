@@ -1,0 +1,29 @@
+#!/bin/sh
+# fp-weather [--text] - current conditions + 3-day forecast from Open-Meteo (free, no key)
+# for the place in ~/.config/fp-weather/location ("Name|lat|lon"), shown in a CDE popup.
+CONF=$HOME/.config/fp-weather/location
+[ -s "$CONF" ] || { "$HOME/bin/fp-column-popup" Weather "No location set.\nPut  Name|latitude|longitude  in $CONF" error; exit 1; }
+IFS='|' read -r NAME LAT LON < "$CONF"
+TXT=$(python3 - "$NAME" "$LAT" "$LON" <<'PY'
+import json,sys,urllib.request
+name,lat,lon=sys.argv[1:4]
+u=("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&current=temperature_2m,apparent_temperature,"
+   "relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,"
+   "precipitation_probability_max&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=3")%(lat,lon)
+W={0:'Clear',1:'Mostly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Fog',51:'Light drizzle',53:'Drizzle',55:'Heavy drizzle',
+   61:'Light rain',63:'Rain',65:'Heavy rain',66:'Freezing rain',67:'Freezing rain',71:'Light snow',73:'Snow',75:'Heavy snow',
+   80:'Showers',81:'Showers',82:'Heavy showers',95:'Thunderstorms',96:'Thunderstorms, hail',99:'Thunderstorms, hail'}
+try: d=json.load(urllib.request.urlopen(u,timeout=15))
+except Exception as e: print("ERR Weather service unreachable (%s)"%type(e).__name__); sys.exit()
+c=d['current']; out=["%s  -  now"%name,"%s, %d F (feels %d F)"%(W.get(c['weather_code'],'?'),round(c['temperature_2m']),round(c['apparent_temperature'])),
+   "Humidity %d%%   Wind %d mph"%(c['relative_humidity_2m'],round(c['wind_speed_10m'])),""]
+import datetime
+for i,day in enumerate(d['daily']['time']):
+    dn='Today' if i==0 else datetime.date.fromisoformat(day).strftime('%a')
+    out.append("%-6s %-16s %3d / %3d F  rain %d%%"%(dn,W.get(d['daily']['weather_code'][i],'?'),round(d['daily']['temperature_2m_max'][i]),
+               round(d['daily']['temperature_2m_min'][i]),d['daily']['precipitation_probability_max'][i] or 0))
+out.append("(Open-Meteo)"); print("\n".join(out))
+PY
+)
+[ "$1" = --text ] && { echo "$TXT"; exit 0; }
+case "$TXT" in ERR*) "$HOME/bin/fp-column-popup" Weather "${TXT#ERR }" error ;; *) "$HOME/bin/fp-column-popup" Weather "$TXT" stay ;; esac

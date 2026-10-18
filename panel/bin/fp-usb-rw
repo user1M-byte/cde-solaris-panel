@@ -1,0 +1,41 @@
+#!/usr/dt/bin/dtksh
+# fp-usb-rw - "Read/Write" in the USB control's drawer: a CDE dialog listing the mounted USB
+# drive(s) under /media/$USER with their state (writable / READ-ONLY and why). Pick one, then
+# "Make writable" (finds out why it is read-only and offers only a safe fix) or
+# "Make read-only" (remount read-only for safe browsing). The work is done by fp-usb-rwtool,
+# which asks again before changing anything and never formats.
+TOOL="$HOME/bin/fp-usb-rwtool"
+LIST=$("$TOOL" list 2>/dev/null)
+if [ -z "$LIST" ]; then exec "$HOME/bin/fp-column-popup" "USB drive" "No USB drive is mounted." info; fi
+desc() { case $1 in rw) echo "writable";; ro-mount) echo "READ-ONLY (mounted read-only)";;
+    write-protected) echo "READ-ONLY (write-protect switch / device)";; ntfs-hibernated) echo "READ-ONLY (Windows hibernated / Fast Startup)";;
+    ntfs-dirty) echo "READ-ONLY (NTFS marked dirty)";; fs-errors) echo "READ-ONLY (file system errors)";; *) echo "READ-ONLY";; esac; }
+MAP=""; ITEMS=""
+while IFS='|' read -r d m l s r f; do
+    it="$(basename "$m")  -  $(desc "$r")"
+    MAP="$MAP$it	$m
+"; ITEMS="$ITEMS$it
+"
+done <<EOT
+$LIST
+EOT
+chosen() { XmSelectionBoxGetChild TXT $DLG DIALOG_TEXT; XmTextGetString SEL $TXT
+    MNT=$(printf '%s' "$MAP" | awk -F'\t' -v s="$SEL" '$1==s {print $2; exit}'); }
+run() { chosen; [ -z "$MNT" ] && { "$HOME/bin/fp-column-popup" "USB drive" "Pick a drive from the list first." error; return; }
+    XtUnmanageChild $DLG; ( setsid "$TOOL" "$1" "$MNT" </dev/null >/dev/null 2>&1 & ); exit 0; }
+XtInitialize TOP fpUsbRw FpUsbRw
+XmCreateSelectionDialog DLG $TOP dlg dialogTitle:"USB drive: Read/Write" \
+    listLabelString:"Mounted USB drives:" selectionLabelString:"Drive:" \
+    okLabelString:"Make writable" applyLabelString:"Make read-only" cancelLabelString:"Cancel" \
+    mustMatch:true listVisibleItemCount:5 width:600
+XmSelectionBoxGetChild LST $DLG DIALOG_LIST
+OLDIFS=$IFS; IFS='
+'; for i in $ITEMS; do XmListAddItem $LST 0 "$i"; done; IFS=$OLDIFS
+XmListSelectPos $LST 1 true
+XmSelectionBoxGetChild H $DLG DIALOG_HELP_BUTTON; XtUnmanageChild $H
+XmSelectionBoxGetChild A $DLG DIALOG_APPLY_BUTTON; XtManageChild $A
+XtAddCallback $DLG okCallback "run make-rw"
+XtAddCallback $DLG applyCallback "run make-ro"
+XtAddCallback $DLG cancelCallback "exit 0"
+XtManageChild $DLG
+XtMainLoop

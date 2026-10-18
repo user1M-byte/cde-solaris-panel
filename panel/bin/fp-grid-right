@@ -1,0 +1,16 @@
+#!/bin/sh
+# fp-grid-right - 2x3 small-icon grid RIGHT of the workspace buttons (Front Panel v4, switch
+# control FpSwitchGridR, CLIENT_NAME fpGridRight). Inner column: (spare, under the Busy light),
+# Lock, Exit; outer column: Weather, Task Manager, Calculator.
+# Lock = the LockDisplay action, Exit = the ExitSession action (dtsession shows its usual
+# logout confirmation) - both run through dtaction exactly like the old switch controls.
+D=$HOME/.dt/fpv4-state; mkdir -p "$D"
+exec 9>"$D/grid-right.lock"; flock -n 9 || exit 0
+echo $$ > "$D/grid-right.pid"
+exec "$HOME/bin/fp-grid" -n fpGridRight -c 2 -s "${FP_GRID_SIZE:-s}" \
+  - \
+  'Lock|Fplock|-|exec /usr/dt/bin/dtaction LockDisplay' \
+  'Exit|Fpexit|-|exec /usr/dt/bin/dtaction ExitSession' \
+  'Weather|FpweatherGrey|-|exec "$HOME/bin/fp-weather"' \
+  'Task Manager|FptaskmgrGrey|-|exec "$HOME/bin/fp-taskmgr"' \
+  'Calculator|FpcalcGrey|-|exec /usr/dt/bin/dtcalc'

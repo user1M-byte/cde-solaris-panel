@@ -1,0 +1,193 @@
+#!/bin/sh
+# fp-usb-rwtool - back end of the USB drawer's "Read/Write" item (Front Panel v4).
+#   fp-usb-rwtool list          one line per mounted USB drive under /media/$USER:
+#                               device|mountpoint|label|rw-or-ro|reason|fstype
+#   fp-usb-rwtool make-rw MNT   find out WHY it is read-only and, if it can be fixed safely,
+#                               offer the fix (always behind a confirmation dialog)
+#   fp-usb-rwtool make-ro MNT   remount read-only (for safe browsing), after confirmation
+# Reasons: rw | ro-mount | write-protected | ntfs-hibernated | ntfs-dirty | fs-errors
+# It NEVER formats anything (no mkfs anywhere) and never changes a drive without an OK in a
+# CDE dialog. Repairs (ntfsfix -d, fsck) need the drive unmounted; they run through sudo.
+# Mounting uses udisksctl (no root) or "mount -o remount" through sudo when udisks can't.
+# Test hooks (loop images only): FP_USB_TEST=1 + FP_USB_MEDIA, FP_USB_SCAN_DEVS (see
+# fp-usb-scan) and FP_USB_TEST_ANSWERS="yes no ..." to answer the dialogs on /dev/loop* only
+# (FP_USB_TEST_DIALOGS=1: real dialogs). In test mode only /dev/loop* devices can be changed.
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+B=${FP_USB_BIN:-$HOME/bin}; T="USB drive"
+MEDIA=${FP_USB_MEDIA:-/media/$(id -un)}; [ "${FP_USB_TEST:-}" = 1 ] || MEDIA=/media/$(id -un)
+STATE_DIR=${FP_USB_STATE_DIR:-$HOME/.dt/usb-state}
+TESTDEV=0
+have_sudo() { sudo -n true 2>/dev/null; }
+asroot() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }
+say() {  # say KIND MESSAGE   (KIND: stay | error)
+    if [ $TESTDEV = 1 ]; then echo "[$1] $2"; else "$B/fp-column-popup" "$T" "$2" "$1"; fi; }
+ask() {  # ask "message" "OK label" [warn] -> 0 if OK
+    if [ $TESTDEV = 1 ]; then a=${FP_USB_TEST_ANSWERS%% *}; FP_USB_TEST_ANSWERS=${FP_USB_TEST_ANSWERS#"$a"}; FP_USB_TEST_ANSWERS=${FP_USB_TEST_ANSWERS# }
+        echo "[ask:${3:-question}] $1 -> [$2]? $a"; [ "$a" = yes ]; return; fi
+    "$B/fp-confirm" "$T" "$1" "$2" "${3:-question}"; }
+refresh() { mkdir -p "$STATE_DIR"; "$B/fp-usb-scan" --ro 2>/dev/null | awk -F'|' '$2!=""' > "$STATE_DIR/readonly.$$" && mv -f "$STATE_DIR/readonly.$$" "$STATE_DIR/readonly"; }
+drives() { "$B/fp-usb-scan" 2>/dev/null | awk -F'|' -v m="$MEDIA/" '$2!="" && index($2,m)==1'; }
+opts()   { findmnt -no OPTIONS -M "$1" 2>/dev/null | head -1; }
+is_ro()  { case ",$(opts "$1")," in *,ro,*) return 0;; esac; return 1; }
+fstype() { findmnt -no FSTYPE -M "$1" 2>/dev/null | head -1; }
+dname()  { basename "$(readlink -f "$1")"; }
+hw_ro()  { n=$(dname "$1"); [ "$(cat /sys/class/block/$n/ro 2>/dev/null)" = 1 ] && return 0
+           pk=$(lsblk -no PKNAME "$1" 2>/dev/null | head -1)
+           [ -n "$pk" ] && [ "$(cat /sys/class/block/$pk/ro 2>/dev/null)" = 1 ]; }
+klog()   { asroot journalctl -b -k --no-pager -o cat 2>/dev/null | grep -a -F "$(dname "$1")" | tail -40; }
+ntfs_hibernated() { # Windows Fast Startup / hibernation leaves hiberfil.sys starting with "hibr"
+    h=$(head -c 4 "$1/hiberfil.sys" 2>/dev/null | tr 'A-Z' 'a-z'); [ "$h" = hibr ]; }
+ntfs_dirty() { f=$(asroot "$B/fp-usb-ntfsflags" "$1" 2>/dev/null || "$B/fp-usb-ntfsflags" "$1" 2>/dev/null)
+    [ "$f" = dirty ] && return 0; klog "$1" | grep -qi 'volume is dirty\|unclean file system\|unsafe state'; }
+fs_errors() { # ext2/3/4, vfat, exfat: kernel switched it read-only, or the fs records errors
+    n=$(dname "$1"); c=$(cat /sys/fs/ext4/$n/errors_count 2>/dev/null || echo 0); [ "${c:-0}" -gt 0 ] && return 0
+    case $2 in ext[234]) asroot tune2fs -l "$1" 2>/dev/null | grep -qi '^Filesystem state:.*error' && return 0;; esac
+    klog "$1" | grep -qiE 'remounting filesystem read-only|set read-only|EXT4-fs error|FAT-fs.*error|exFAT-fs.*error'; }
+reason() { # reason DEV MNT
+    is_ro "$2" || { echo rw; return; }
+    hw_ro "$1" && { echo write-protected; return; }
+    fs=$(fstype "$2"); kind=$(lsblk -no FSTYPE "$1" 2>/dev/null | head -1)
+    if [ "$kind" = ntfs ]; then ntfs_hibernated "$2" && { echo ntfs-hibernated; return; }
+                               ntfs_dirty "$1" && { echo ntfs-dirty; return; }
+    else fs_errors "$1" "$fs" && { echo fs-errors; return; }; fi
+    echo ro-mount; }
+list() { drives | while IFS='|' read -r d m l; do
+    r=$(reason "$d" "$m"); s=rw; [ "$r" = rw ] || s=ro; echo "$d|$m|$l|$s|$r|$(fstype "$m")"; done; }
+pick() { # pick MNT -> sets DEV LAB (only drives from the list are accepted)
+    LINE=$(drives | awk -F'|' -v m="$1" '$2==m' | head -1)
+    [ -n "$LINE" ] || { say error "$1 is not a mounted USB drive under $MEDIA."; exit 1; }
+    DEV=${LINE%%|*}; LAB=${LINE##*|}; MNT=$1
+    if [ "${FP_USB_TEST:-}" = 1 ]; then case $DEV in /dev/loop*) [ "${FP_USB_TEST_DIALOGS:-}" = 1 ] || TESTDEV=1;;
+        *) echo "test mode: refusing to touch $DEV (not a loop test image)"; exit 3;; esac; fi; }
+mount_opts() { # options to re-mount with by hand (sudo fallback), without ro/rw
+    echo "$1" | tr ',' '\n' | grep -v -x -e ro -e rw -e 'user_id=.*' -e 'group_id=.*' -e allow_other -e 'blksize=.*' -e 'fsname=.*' -e blkdev | paste -sd, -; }
+SAVED_FS=; SAVED_OPTS=
+unmount() { # unmount DEV MNT (udisks first, then sudo); 0 if no longer mounted
+    SAVED_FS=$(fstype "$2"); SAVED_OPTS=$(opts "$2")
+    OUT=$(udisksctl unmount -b "$1" --no-user-interaction 2>&1)
+    mountpoint -q "$2" 2>/dev/null && have_sudo && OUT="$OUT
+$(sudo -n umount "$2" 2>&1)"
+    ! mountpoint -q "$2" 2>/dev/null; }
+mount_again() { # mount_again DEV MNT MODE -> sets MNT to where it is mounted now
+    OUT2=$(udisksctl mount -b "$1" -o "$3" --no-user-interaction 2>&1)
+    nm=$(findmnt -no TARGET -S "$1" 2>/dev/null | head -1); [ -n "$nm" ] && { MNT=$nm; return 0; }
+    have_sudo || return 1
+    t=$SAVED_FS; [ "$t" = fuseblk ] && t=ntfs-3g; o=$(mount_opts "$SAVED_OPTS")
+    [ "$t" = ntfs-3g ] && o="uid=$(id -u),gid=$(id -g)"
+    sudo -n mkdir -p "$2" && OUT2="$OUT2
+$(sudo -n mount ${t:+-t "$t"} -o "$3${o:+,$o}" "$1" "$2" 2>&1)"
+    nm=$(findmnt -no TARGET -S "$1" 2>/dev/null | head -1); [ -n "$nm" ] && { MNT=$nm; return 0; }; return 1; }
+switch_mode() { # switch_mode DEV MNT ro|rw : remount in place, else unmount + mount
+    fs=$(fstype "$2")
+    if [ "$fs" != fuseblk ] && have_sudo; then OUT=$(sudo -n mount -o "remount,$3" "$2" 2>&1)
+        if [ "$3" = rw ]; then is_ro "$2" || return 0; else is_ro "$2" && return 0; fi; fi
+    unmount "$1" "$2" || { say error "Can't change $LAB now - it is in use (close its File Manager windows and open files, then try again).
+$(printf '%s\n' "$OUT" | tail -3)"; return 2; }
+    mount_again "$1" "$2" "$3" && return 0
+    mount_again "$1" "$2" ro || true
+    return 1; }
+logtail() { printf '%s\n' "$1" | grep -v -e '^$' -e 'textual authentication agent' -e 'NotAuthorized' | tail -4; }
+make_ro() {
+    pick "$1"; is_ro "$MNT" && { say stay "$LAB is already read-only."; exit 0; }
+    ask "Make $LAB read-only?
+
+Nothing on the drive can be changed or deleted until you choose
+Read/Write > Make writable again. Save and close any file you are
+editing on it first. (Runs: remount read-only. Nothing is erased.)" "Make read-only" || exit 0
+    sync; switch_mode "$DEV" "$MNT" ro; rc=$?; refresh
+    if is_ro "$MNT" 2>/dev/null; then say stay "$LAB is now read-only (safe browsing)."; exit 0; fi
+    [ $rc = 2 ] && exit 1
+    say error "Could not make $LAB read-only.
+$(logtail "$OUT
+$OUT2")"; exit 1; }
+make_rw() {
+    pick "$1"; r=$(reason "$DEV" "$MNT"); kind=$(lsblk -no FSTYPE "$DEV" 2>/dev/null | head -1)
+    case $r in
+    rw) say stay "$LAB is already writable."; exit 0;;
+    write-protected) say error "$LAB is write-protected by the device itself.
+
+That is a physical write-protect switch (SD cards, some USB sticks) or a
+drive that has locked itself read-only (often a failing stick). It can't be
+changed in software: slide the lock switch to unlocked, then unplug and
+re-plug the drive. Nothing was changed."; exit 0;;
+    ntfs-hibernated) say error "$LAB is read-only because Windows is hibernated on it
+(Windows Fast Startup or Hibernate). Writing to it now can lose data.
+
+Fix it in Windows: shut Windows down FULLY (hold Shift while clicking
+Shut down, or turn off Fast Startup in Power Options), then plug the
+drive in here again. ntfsfix is NOT safe here and was not run.
+Nothing was changed."; exit 0;;
+    ntfs-dirty)
+        have_sudo || { say error "$LAB (NTFS) is marked dirty, and fixing that needs administrator rights (sudo), which aren't available."; exit 1; }
+        ask "$LAB (NTFS) is read-only because the volume is marked 'dirty'
+(it was not cleanly removed, or Windows wants a disk check).
+
+Fix: unmount it, run  ntfsfix -d  (clears the dirty flag and fixes
+basic NTFS inconsistencies - it does not format or erase), then mount
+it writable again. Running chkdsk in Windows is the most thorough fix.
+Close any files on the drive first.
+
+Run ntfsfix -d on $DEV now?" "Fix and make writable" warn || exit 0
+        sync; unmount "$DEV" "$MNT" || { say error "Can't unmount $LAB - it is in use. Close its windows and files, then try again.
+$(logtail "$OUT")"; exit 1; }
+        FIX=$(sudo -n ntfsfix -d "$DEV" 2>&1); frc=$?
+        if [ $frc != 0 ]; then mount_again "$DEV" "$MNT" ro; refresh; say error "ntfsfix failed - $LAB was mounted read-only again. Check it with chkdsk in Windows.
+$(logtail "$FIX")"; exit 1; fi
+        if mount_again "$DEV" "$MNT" rw && ! is_ro "$MNT"; then refresh; say stay "$LAB is writable now (dirty flag cleared by ntfsfix -d).
+$(logtail "$FIX")"; exit 0; fi
+        mount_again "$DEV" "$MNT" ro; refresh; say error "ntfsfix ran, but $LAB still would not mount writable.
+$(logtail "$OUT2")"; exit 1;;
+    fs-errors)
+        case $kind in ext2|ext3|ext4) CK=e2fsck; CN="-n"; CY="-y";; vfat|msdos) CK=fsck.fat; CN="-n"; CY="-a";;
+                      exfat) CK=fsck.exfat; CN="-n"; CY="-y";;
+                      *) say error "$LAB ($kind) was set read-only after file system errors. There is no checker for $kind here; nothing was changed."; exit 1;; esac
+        command -v $CK >/dev/null 2>&1 || { say error "$LAB has file system errors, but $CK is not installed. Nothing was changed."; exit 1; }
+        have_sudo || { say error "$LAB has file system errors; checking it needs administrator rights (sudo), which aren't available."; exit 1; }
+        ask "$LAB ($kind) is read-only because the file system has errors
+(the kernel switched it to read-only to protect your files).
+
+Check it: unmount the drive and run a READ-ONLY check
+($CK $CN $DEV). Nothing is changed by the check; you will be
+asked again before anything is repaired. Close any files on the drive first." "Check drive" || exit 0
+        sync; unmount "$DEV" "$MNT" || { say error "Can't unmount $LAB - it is in use. Close its windows and files, then try again.
+$(logtail "$OUT")"; exit 1; }
+        CHK=$(sudo -n $CK $CN "$DEV" 2>&1); crc=$?
+        if [ $crc = 0 ]; then
+            if mount_again "$DEV" "$MNT" rw && ! is_ro "$MNT"; then refresh; say stay "Check found no errors; $LAB is writable again.
+$(logtail "$CHK")"; exit 0; fi
+            mount_again "$DEV" "$MNT" ro; refresh; say error "Check found no errors, but $LAB still would not mount writable.
+$(logtail "$OUT2")"; exit 1; fi
+        if ! ask "The check found problems on $LAB:
+
+$(logtail "$CHK")
+
+Repair them now ($CK $CY $DEV)? Repairs can move damaged files to
+'lost+found' or FSCK*.REC. It never formats the drive. Copy anything
+important off the drive first if you can." "Repair" warn; then
+            mount_again "$DEV" "$MNT" ro; refresh; say stay "Not repaired. $LAB is mounted read-only again."; exit 0; fi
+        REP=$(sudo -n $CK $CY "$DEV" 2>&1); rrc=$?
+        if [ $rrc -ge 4 ]; then mount_again "$DEV" "$MNT" ro; refresh; say error "The repair could not fix everything (exit $rrc). $LAB is mounted read-only again.
+$(logtail "$REP")"; exit 1; fi
+        if mount_again "$DEV" "$MNT" rw && ! is_ro "$MNT"; then refresh; say stay "Repaired; $LAB is writable now.
+$(logtail "$REP")"; exit 0; fi
+        mount_again "$DEV" "$MNT" ro; refresh; say error "Repaired, but $LAB still would not mount writable.
+$(logtail "$OUT2")"; exit 1;;
+    ro-mount)
+        ask "$LAB is mounted read-only (no write-protect switch, no errors found).
+
+Make it writable? (Runs: remount read-write; if that isn't possible it is
+unmounted and mounted again read-write. Nothing is erased.)" "Make writable" || exit 0
+        switch_mode "$DEV" "$MNT" rw; rc=$?; refresh
+        if ! is_ro "$MNT" 2>/dev/null && mountpoint -q "$MNT"; then say stay "$LAB is writable now."; exit 0; fi
+        [ $rc = 2 ] && exit 1
+        say error "Could not make $LAB writable.
+$(logtail "$OUT
+$OUT2
+$(klog "$DEV" | tail -2)")"; exit 1;;
+    esac; }
+case ${1:-} in
+    list) list;; why) pick "$2"; reason "$DEV" "$MNT";;
+    make-rw) make_rw "$2";; make-ro) make_ro "$2";;
+    refresh) refresh;;
+    *) echo "usage: fp-usb-rwtool list | why MNT | make-rw MNT | make-ro MNT | refresh" >&2; exit 2;;
+esac

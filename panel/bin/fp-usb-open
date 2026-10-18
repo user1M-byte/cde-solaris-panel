@@ -1,0 +1,21 @@
+#!/bin/sh
+# fp-usb-open - click on the Front Panel USB control: open the USB drive in dtfile.
+#   one mounted USB drive   -> dtfile on that drive
+#   several mounted         -> dtfile on /media/$USER (all drives side by side)
+#   plugged in, not mounted -> udisksctl mount (as you, no password), then open it
+#   none                    -> short "No USB drive" note
+# Never cd's into the mount point (dtfile is given the path).
+SCAN=$("$HOME/bin/fp-usb-scan" 2>/dev/null)
+MNT=$(printf '%s\n' "$SCAN" | awk -F'|' '$2!=""{print $2}')
+N=$(printf '%s' "$MNT" | grep -c .)
+if [ "$N" -eq 1 ]; then exec /usr/dt/bin/dtfile -folder "$MNT"
+elif [ "$N" -gt 1 ]; then
+    D=/media/$(id -un); [ -d "$D" ] || D=$(printf '%s\n' "$MNT" | head -1)
+    exec /usr/dt/bin/dtfile -folder "$D"
+fi
+DEV=$(printf '%s\n' "$SCAN" | awk -F'|' 'NF>1{print $1; exit}')
+[ -z "$DEV" ] && exec "$HOME/bin/fp-column-popup" "USB drive" "No USB drive is plugged in." info
+OUT=$(udisksctl mount -b "$DEV" --no-user-interaction 2>&1) || exec "$HOME/bin/fp-column-popup" "USB drive" "Could not mount $DEV:
+$OUT" error
+M=$(lsblk -no MOUNTPOINT "$DEV" | head -1)
+[ -n "$M" ] && exec /usr/dt/bin/dtfile -folder "$M"

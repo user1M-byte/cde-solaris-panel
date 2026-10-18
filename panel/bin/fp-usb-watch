@@ -1,0 +1,25 @@
+#!/bin/sh
+# fp-usb-watch - Front Panel USB control: keeps ~/.dt/usb-state/mounted = one line
+# "device|mountpoint|label" per MOUNTED USB filesystem (empty file = no USB drive mounted),
+# which dtwm uses as the USB control's monitor file (disk icon lit while non-empty), and
+# ~/.dt/usb-state/readonly = the same lines for the ones mounted READ-ONLY (drawer Read/Write
+# icon shows a padlock while non-empty).
+# Event-driven ("udevadm monitor" on block devices, re-checked 1 s and 4 s after an event,
+# since the automounter mounts a moment after udev) plus a 10 s poll (catches manual
+# mounts/unmounts/remounts). Read-only: never mounts or unmounts. Single instance (flock).
+# FP_USB_STATE_DIR overrides the state dir (used for testing). Lock/pid: .watch-rw.lock /
+# watch-rw.pid (new names, so it runs even while an older fp-usb-watch is still alive).
+STATE_DIR=${FP_USB_STATE_DIR:-$HOME/.dt/usb-state}; STATE=$STATE_DIR/mounted; RO=$STATE_DIR/readonly
+mkdir -p "$STATE_DIR"; exec 9>"$STATE_DIR/.watch-rw.lock"; flock -n 9 || exit 0
+echo $$ > "$STATE_DIR/watch-rw.pid"
+put() { # put FILE CONTENT - rewrite FILE only if it changed (atomic)
+    old=$(cat "$1" 2>/dev/null); [ -e "$1" ] && [ "$2" = "$old" ] && return
+    printf '%s' "$2" > "$1.$$" && { [ -n "$2" ] && echo >> "$1.$$"; mv -f "$1.$$" "$1"; }; }
+update() { put "$STATE" "$("$HOME/bin/fp-usb-scan" 2>/dev/null | awk -F'|' '$2!=""')"
+           put "$RO" "$("$HOME/bin/fp-usb-scan" --ro 2>/dev/null | awk -F'|' '$2!=""')"; }
+update
+while :; do
+    timeout 10 udevadm monitor --udev --subsystem-match=block 2>/dev/null | while read -r l; do
+        case "$l" in UDEV*) sleep 1; update; sleep 3; update ;; esac; done
+    update
+done

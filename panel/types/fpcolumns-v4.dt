@@ -1,0 +1,82 @@
+# cde-solaris-panel: actions behind the Front Panel controls (installed by panel/install.sh).
+ACTION FpVpnToggle
+{
+  LABEL         VPN On/Off
+  TYPE          COMMAND
+  EXEC_STRING   /bin/sh -c '$HOME/bin/fp-vpn-toggle'
+  WINDOW_TYPE   NO_STDIO
+  ICON          FpvpnGreyOn
+  DESCRIPTION   Connect or disconnect the VPN configured in ~/.config/cde-solaris-panel/panel.conf.
+}
+ACTION FpCalc
+{
+  LABEL         Calculator
+  TYPE          COMMAND
+  EXEC_STRING   /usr/dt/bin/dtcalc
+  WINDOW_TYPE   NO_STDIO
+  ICON          FpcalcGrey
+  DESCRIPTION   The CDE calculator (dtcalc).
+}
+ACTION FpWeather
+{
+  LABEL         Weather
+  TYPE          COMMAND
+  EXEC_STRING   /bin/sh -c '$HOME/bin/fp-weather'
+  WINDOW_TYPE   NO_STDIO
+  ICON          FpweatherGrey
+  DESCRIPTION   Current weather and 3-day forecast for ~/.config/fp-weather/location (Open-Meteo).
+}
+ACTION FpTaskMgr
+{
+  LABEL         Task Manager
+  TYPE          COMMAND
+  EXEC_STRING   /bin/sh -c '$HOME/bin/fp-taskmgr'
+  WINDOW_TYPE   NO_STDIO
+  ICON          FptaskmgrGrey
+  DESCRIPTION   Running programs, CPU and memory (htop in a terminal).
+}
+ACTION FpUsbOpen
+{
+  LABEL         Open USB Drive
+  TYPE          COMMAND
+  EXEC_STRING   /bin/sh -c '$HOME/bin/fp-usb-open'
+  WINDOW_TYPE   NO_STDIO
+  ICON          FpusbGreyOn
+  DESCRIPTION   Open the plugged-in USB drive in the File Manager.
+}
+ACTION FpUsbEject
+{
+  LABEL         Safe Eject USB Drive
+  TYPE          COMMAND
+  EXEC_STRING   /bin/sh -c '$HOME/bin/fp-usb-eject'
+  WINDOW_TYPE   NO_STDIO
+  ICON          FpejectGrey
+  DESCRIPTION   Sync, unmount and power off a USB drive so it is safe to unplug.
+}
+ACTION FpLauncher
+{
+  LABEL         Launcher
+  TYPE          COMMAND
+  EXEC_STRING   /bin/sh -c '$HOME/bin/fp-launcher'
+  WINDOW_TYPE   NO_STDIO
+  ICON          FplaunchGrey
+  DESCRIPTION   Runs FP_LAUNCHER_CMD from ~/.config/cde-solaris-panel/panel.conf.
+}
+ACTION LocalAIToggle
+{
+  LABEL         Services On/Off
+  TYPE          COMMAND
+  EXEC_STRING   /bin/sh -c '$HOME/bin/fp-localai-toggle'
+  WINDOW_TYPE   NO_STDIO
+  ICON          FplocalaiGreyOn
+  DESCRIPTION   Starts or stops the services listed in ~/.config/cde-solaris-panel/panel.conf.
+}
+ACTION FpUsbRw
+{
+  LABEL         USB Drive Read/Write
+  TYPE          COMMAND
+  EXEC_STRING   /bin/sh -c '$HOME/bin/fp-usb-rw'
+  WINDOW_TYPE   NO_STDIO
+  ICON          FprwGreyOff
+  DESCRIPTION   Show whether the USB drive is read-only or writable, find out why, and switch it safely.
+}

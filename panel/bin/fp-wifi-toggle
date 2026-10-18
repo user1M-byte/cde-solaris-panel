@@ -1,0 +1,51 @@
+#!/bin/sh
+# fp-wifi-toggle - CDE Front Panel Wi-Fi radio toggle (added 2026-10-18).
+# Only ever runs: nmcli radio wifi on|off   (wired connections untouched).
+# Usage: fp-wifi-toggle [--dry-run] [on|off]
+#   --dry-run (or FP_WIFI_DRYRUN=1): do not touch the radio; just flip the
+#   panel state file and show the popup (used for testing).
+STATE_DIR=${FP_WIFI_STATE_DIR:-$HOME/.dt/wifi-state}
+STATE=$STATE_DIR/on
+LOG=$STATE_DIR/toggle.log
+DRY=${FP_WIFI_DRYRUN:-0}
+[ "$1" = "--dry-run" ] && { DRY=1; shift; }
+mkdir -p "$STATE_DIR"
+
+setstate() {   # $1 = on|off ; non-empty file = on (Front Panel MONITOR_TYPE file)
+    tmp=$STATE.$$
+    if [ "$1" = on ]; then echo on > "$tmp"; else : > "$tmp"; fi
+    mv -f "$tmp" "$STATE"
+}
+radio() { nmcli -t radio wifi 2>/dev/null; }   # enabled | disabled
+
+if [ "$DRY" = 1 ] && [ -e "$STATE" ]; then
+    [ -s "$STATE" ] && cur=enabled || cur=disabled
+else
+    cur=$(radio)
+fi
+case "$1" in
+    on|off) want=$1 ;;
+    *) [ "$cur" = enabled ] && want=off || want=on ;;
+esac
+
+if [ "$DRY" = 1 ]; then
+    echo "$(date '+%F %T') DRY-RUN would run: nmcli radio wifi $want" >> "$LOG"
+    setstate "$want"
+    msg="Wi-Fi radio: $(echo $want | tr a-z A-Z)  (dry run - radio not changed)"
+else
+    if nmcli radio wifi "$want" 2>>"$LOG"; then
+        echo "$(date '+%F %T') nmcli radio wifi $want: ok" >> "$LOG"
+    else
+        echo "$(date '+%F %T') nmcli radio wifi $want: FAILED" >> "$LOG"
+        "$HOME/bin/fp-wifi-popup" "Could not turn Wi-Fi $want.\nSee $LOG" error >/dev/null 2>&1
+        exit 1
+    fi
+    sleep 1
+    [ "$(radio)" = enabled ] && now=on || now=off
+    setstate "$now"
+    msg="Wi-Fi radio is now $(echo $now | tr a-z A-Z)"
+fi
+# Run the popup in the foreground: the CDE action launcher (dtexec) cleans up
+# background children when this script exits. It closes itself after 2.5 s.
+"$HOME/bin/fp-wifi-popup" "$msg" >/dev/null 2>&1
+exit 0

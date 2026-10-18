@@ -1,0 +1,50 @@
+#!/bin/sh
+# fp-audio-hdmi-on - make sure the ALSA "IEC958 Playback Switch" for the HDMI
+# output in use (e.g. a TV) is ON, so HDMI audio can't be silently muted.
+# Added 2026-10-18. Only ever turns switches ON; never mutes anything.
+# Usage: fp-audio-hdmi-on [--dry-run]     (also FP_AUDIO_DRYRUN=1)
+XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}; export XDG_RUNTIME_DIR
+DRY=${FP_AUDIO_DRYRUN:-0}; [ "$1" = "--dry-run" ] && DRY=1
+LOG=${FP_AUDIO_STATE_DIR:-$HOME/.dt/audio-state}/toggle.log
+mkdir -p "$(dirname "$LOG")"
+log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
+
+sink=$(pactl get-default-sink 2>/dev/null)
+card=""; dev=""
+if [ -n "$sink" ]; then
+    eval "$(pactl list sinks 2>/dev/null | awk -v s="$sink" '
+        /^Sink #/ {in_s=0} $1=="Name:" {in_s=($2==s)}
+        in_s && /alsa.card = / {gsub(/"/,"",$3); print "card=" $3}
+        in_s && /alsa.device = / {gsub(/"/,"",$3); print "dev=" $3}')"
+fi
+switch_on() {   # $1=card $2=numid
+    cur=$(amixer -c "$1" cget numid="$2" 2>/dev/null | awk -F= '/: values=/{print $2}')
+    if [ "$cur" = on ]; then return 0; fi
+    if [ "$DRY" = 1 ]; then log "DRY-RUN would run: amixer -c $1 cset numid=$2 on (was ${cur:-?})"
+    else amixer -q -c "$1" cset numid="$2" on && log "IEC958 card $1 numid=$2 turned on (was ${cur:-?})"; fi
+}
+numids() {      # $1=card [$2=index] -> numids of IEC958 Playback Switch
+    amixer -c "$1" controls 2>/dev/null | awk -F, -v want="$2" '
+        /name=.IEC958 Playback Switch./ {
+            id=$1; sub(/numid=/,"",id); idx=0
+            for(i=2;i<=NF;i++) if($i ~ /^index=/){idx=$i; sub(/index=/,"",idx)}
+            if(want=="" || idx==want) print id }'
+}
+if [ -n "$card" ] && [ -n "$dev" ] && [ -r "/proc/asound/card$card/pcm${dev}p/info" ]; then
+    # HDA HDMI: PCM named "HDMI N" uses IEC958 control index N
+    n=$(awk -F': ' '$1=="name" && $2 ~ /^HDMI [0-9]+/ {split($2,a," "); print a[2]}' "/proc/asound/card$card/pcm${dev}p/info")
+    if [ -n "$n" ]; then
+        for id in $(numids "$card" "$n"); do switch_on "$card" "$id"; done
+        exit 0
+    fi
+fi
+# Sink not known yet (e.g. very early at login) or not an HDMI PCM:
+# turn on the IEC958 switches of every card that has an HDMI output.
+for info in /proc/asound/card*/pcm*p/info; do
+    grep -q '^name: HDMI' "$info" 2>/dev/null || continue
+    c=${info#/proc/asound/card}; c=${c%%/*}
+    case " $done_cards " in *" $c "*) continue;; esac
+    done_cards="$done_cards $c"
+    for id in $(numids "$c"); do switch_on "$c" "$id"; done
+done
+exit 0

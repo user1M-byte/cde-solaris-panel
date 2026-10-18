@@ -1,0 +1,24 @@
+#!/usr/dt/bin/dtksh
+# fp-wifi-popup "message" [error] - small CDE (Motif) confirmation that closes itself after 2.5 s.
+MSG=${1:-Wi-Fi}
+KIND=${2:-info}
+XtInitialize TOP fpWifiPopup FpWifiPopup
+if [ "$KIND" = error ]; then
+    XmCreateErrorDialog DLG $TOP dlg messageString:"$MSG" dialogTitle:"Wi-Fi"
+else
+    XmCreateInformationDialog DLG $TOP dlg messageString:"$MSG" dialogTitle:"Wi-Fi"
+fi
+XmMessageBoxGetChild C $DLG DIALOG_CANCEL_BUTTON; XtUnmanageChild $C
+XmMessageBoxGetChild H $DLG DIALOG_HELP_BUTTON;   XtUnmanageChild $H
+XtAddCallback $DLG okCallback "exit 0"
+# Centre on the screen (the parent is never shown, so Motif would put it at the top-left).
+DIM=$(xdpyinfo 2>/dev/null | awk '/dimensions:/ {print $2; exit}')
+SW=${DIM%x*}; SH=${DIM#*x}
+if [ -n "$DIM" ]; then
+    XtParent SHELL $DLG
+    XtSetValues $DLG defaultPosition:false
+    XtSetValues $SHELL x:$(( (SW - 400) / 2 )) y:$(( (SH - 110) / 2 ))
+fi
+XtManageChild $DLG
+[ "$KIND" = error ] || XtAddTimeOut TID 2500 "exit 0"
+XtMainLoop

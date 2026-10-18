@@ -1,0 +1,47 @@
+#!/bin/sh
+# fp-localai-toggle [--dry-run] [on|off|status] - "services" cell of the left grid.
+# Starts or stops a configurable group of services together (FP_SVC_* in panel.conf):
+#   FP_SVC_SYSTEM_UNITS  system units   (sudo -n systemctl start|stop)
+#   FP_SVC_USER_UNITS    user units     (systemctl --user start|stop)
+#   FP_SVC_CONTAINERS    docker containers (docker start|stop)
+# No argument: if anything is running -> all off, otherwise -> all on.
+# Only starts/stops; never enables, disables or deletes anything.
+. "$HOME/bin/fp-conf"
+STATE_DIR=${FP_LOCALAI_STATE_DIR:-$HOME/.dt/localai-state}; STATE=$STATE_DIR/on; LOG=$STATE_DIR/toggle.log
+DRY=0; [ "$1" = --dry-run ] && { DRY=1; shift; }
+XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}; export XDG_RUNTIME_DIR
+mkdir -p "$STATE_DIR"
+log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
+popup() { [ "${FP_NOPOPUP:-0}" = 1 ] && { printf '%b\n' "$1"; return; }
+          "$HOME/bin/fp-column-popup" "$FP_SVC_LABEL" "$(printf '%b' "$1")" "${2:-info}" >/dev/null 2>&1; }
+setstate() { if [ "$1" = on ]; then echo on > "$STATE.$$"; else : > "$STATE.$$"; fi; mv -f "$STATE.$$" "$STATE"; }
+running() {
+    for u in $FP_SVC_SYSTEM_UNITS; do systemctl is-active --quiet "$u" 2>/dev/null && echo "$u"; done
+    for u in $FP_SVC_USER_UNITS; do systemctl --user is-active --quiet "$u" 2>/dev/null && echo "$u"; done
+    for c in $FP_SVC_CONTAINERS; do [ -n "$(timeout 10 docker ps -q --filter "name=^${c}\$" 2>/dev/null)" ] && echo "$c"; done
+}
+run() { if [ $DRY = 1 ]; then log "DRY-RUN $*"; echo "would run: $*"; else timeout 90 "$@" >>"$LOG" 2>&1 && log "ok: $*" || log "FAILED: $*"; fi; }
+if [ -z "$FP_SVC_SYSTEM_UNITS$FP_SVC_USER_UNITS$FP_SVC_CONTAINERS" ]; then
+    popup "Nothing to toggle yet.\nSet FP_SVC_SYSTEM_UNITS / FP_SVC_USER_UNITS / FP_SVC_CONTAINERS\nin ~/.config/cde-solaris-panel/panel.conf" error; exit 1
+fi
+now=$(running)
+case "$1" in
+  status) [ -n "$now" ] && echo "on: $now" || echo off; exit 0 ;;
+  on|off) want=$1 ;;
+  "") [ -n "$now" ] && want=off || want=on ;;
+  *) echo "usage: $0 [--dry-run] [on|off|status]" >&2; exit 2 ;;
+esac
+if [ $want = on ]; then
+    for u in $FP_SVC_SYSTEM_UNITS; do run sudo -n systemctl start "$u"; done
+    for u in $FP_SVC_USER_UNITS; do run systemctl --user start "$u"; done
+    for c in $FP_SVC_CONTAINERS; do run docker start "$c"; done
+else
+    for c in $FP_SVC_CONTAINERS; do run docker stop "$c"; done
+    for u in $FP_SVC_USER_UNITS; do run systemctl --user stop "$u"; done
+    for u in $FP_SVC_SYSTEM_UNITS; do run sudo -n systemctl stop "$u"; done
+fi
+if [ $DRY = 1 ]; then setstate $want; popup "$FP_SVC_LABEL: $want (dry run - nothing changed)"; exit 0; fi
+sleep 1; now=$(running)
+if [ -n "$now" ]; then setstate on; else setstate off; fi
+if [ $want = on ]; then popup "$FP_SVC_LABEL is ON"; else
+    [ -z "$now" ] && popup "$FP_SVC_LABEL is OFF" || popup "Still running:\n$now\nSee $LOG" error; fi

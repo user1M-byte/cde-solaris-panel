@@ -1,0 +1,12 @@
+#!/usr/dt/bin/dtksh
+# fp-confirm "title" "message" "OK button label" [warn] - CDE (Motif) confirmation dialog.
+# Exit 0 = the OK button was pressed, 1 = Cancel / window closed. Cancel has the focus.
+TITLE=${1:-Front Panel}; MSG=${2:-Continue?}; OKL=${3:-OK}; KIND=${4:-question}
+XtInitialize TOP fpConfirm FpConfirm
+if [ "$KIND" = warn ]; then XmCreateWarningDialog DLG $TOP dlg messageString:"$MSG" dialogTitle:"$TITLE" okLabelString:"$OKL" cancelLabelString:"Cancel" defaultButtonType:DIALOG_CANCEL_BUTTON
+else XmCreateQuestionDialog DLG $TOP dlg messageString:"$MSG" dialogTitle:"$TITLE" okLabelString:"$OKL" cancelLabelString:"Cancel" defaultButtonType:DIALOG_CANCEL_BUTTON; fi
+XmMessageBoxGetChild H $DLG DIALOG_HELP_BUTTON; XtUnmanageChild $H
+XtAddCallback $DLG okCallback "exit 0"
+XtAddCallback $DLG cancelCallback "exit 1"
+XtManageChild $DLG
+XtMainLoop

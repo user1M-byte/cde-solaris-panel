@@ -1,0 +1,17 @@
+#!/bin/sh
+# fp-grid-left - 2x3 small-icon grid LEFT of the workspace buttons (Front Panel v4, switch control
+# FpSwitchGridL, CLIENT_NAME fpGridLeft). Outer column: Launcher, Services, VPN
+# (labels/commands from ~/.config/cde-solaris-panel/panel.conf);
+# inner column (next to the workspace buttons): Sound, Wi-Fi, Mic - same icons, state files and
+# commands as the old switch controls (actions SoundToggle / WifiToggle / MicToggle).
+. "$HOME/bin/fp-conf"
+D=$HOME/.dt/fpv4-state; mkdir -p "$D"
+exec 9>"$D/grid-left.lock"; flock -n 9 || exit 0      # single instance
+echo $$ > "$D/grid-left.pid"                          # same PID after exec (used by rollback.sh)
+exec "$HOME/bin/fp-grid" -n fpGridLeft -c 2 -s "${FP_GRID_SIZE:-s}" \
+  "$FP_LAUNCHER_LABEL|FplaunchGrey|-|exec \"\$HOME/bin/fp-launcher\"" \
+  "$FP_SVC_LABEL|FplocalaiGrey|$HOME/.dt/localai-state/on|exec \"\$HOME/bin/fp-localai-toggle\"" \
+  "$FP_VPN_NAME|FpvpnGrey|$HOME/.dt/vpn-state/on|exec \"\$HOME/bin/fp-vpn-toggle\"" \
+  "Sound|FpsoundGrey|$HOME/.dt/audio-state/unmuted|exec \"\$HOME/bin/fp-audio-toggle\"" \
+  "Wi-Fi|FpwifiGrey|$HOME/.dt/wifi-state/on|exec \"\$HOME/bin/fp-wifi-toggle\"" \
+  "Mic|FpmicGrey|$HOME/.dt/audio-state/mic-unmuted|exec \"\$HOME/bin/fp-mic-toggle\""

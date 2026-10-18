@@ -1,0 +1,32 @@
+/* XPM */
+/* cde-solaris-panel icon, original artwork in grey CDE style */
+/* v3: Fplock-style bevel (light top/left, dark bottom/right) */
+static char * FpmicGreyOn_t[] = {
+"16 16 11 1 0 0",
+"  s none m none c none",
+". s iconGray2 m white c #bdbdbdbdbdbd",
+"# s iconGray3 m white c #adadadadadad",
+"o s iconGray4 m black c #949494949494",
+"+ s iconGray6 m black c #636363636363",
+"@ s topShadowColor m white c #bdbdbdbdbdbd",
+"$ s bottomShadowColor m black c #636363636363",
+"% m black c #6b8f6b",
+"L s iconGray1 m white c #dededededede",
+"I s iconGray5 m black c #737373737373",
+"D s iconGray7 m black c #424242424242",
+"      $         ",
+"     $L$     %  ",
+"    $L#L$    %% ",
+"   $L#.#L@  % % ",
+"   $L#.oL@  %%%%",
+"   $L#.oL@  %%%%",
+"   $L#.oL$  % %%",
+"  $LD#.oLL@ % % ",
+"  $L$L#LID@  %% ",
+"   $LILID@   %  ",
+"    $LID@       ",
+"     $L@        ",
+"    $$L$$$      ",
+"   $LLILLL@     ",
+"   $LDDDD@      ",
+"    @@@@@       "};

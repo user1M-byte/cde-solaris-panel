@@ -1,0 +1,30 @@
+#!/bin/sh
+# fp-vpn-toggle [--dry-run] [on|off|status] - optional VPN cell of the left grid.
+# Commands come from panel.conf (FP_VPN_STATUS_CMD / FP_VPN_UP_CMD / FP_VPN_DOWN_CMD);
+# with none set it uses expressvpnctl if installed. Popups and the log only say
+# Connected/Disconnected: server locations are never shown or written.
+. "$HOME/bin/fp-conf"
+STATE_DIR=${FP_VPN_STATE_DIR:-$HOME/.dt/vpn-state}; STATE=$STATE_DIR/on; LOG=$STATE_DIR/toggle.log
+DRY=0; [ "$1" = --dry-run ] && { DRY=1; shift; }
+mkdir -p "$STATE_DIR"
+log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
+popup() { [ "${FP_NOPOPUP:-0}" = 1 ] && { printf '%b\n' "$1"; return; }
+          "$HOME/bin/fp-column-popup" "$FP_VPN_NAME" "$(printf '%b' "$1")" "${2:-info}" >/dev/null 2>&1; }
+[ -n "${FP_VPN_STATUS_CMD:-}" ] || { popup "No VPN configured.\nSet FP_VPN_STATUS_CMD / FP_VPN_UP_CMD / FP_VPN_DOWN_CMD\nin ~/.config/cde-solaris-panel/panel.conf" error; exit 1; }
+state() { timeout 10 sh -c "$FP_VPN_STATUS_CMD" 2>/dev/null | head -1; }
+now=$(state); [ -n "$now" ] || now=Unknown
+case "$1" in
+  status) echo "$FP_VPN_NAME: $now"; exit 0 ;;
+  on|off) want=$1 ;;
+  "") [ "$now" = Connected ] && want=off || want=on ;;
+  *) echo "usage: $0 [--dry-run] [on|off|status]" >&2; exit 2 ;;
+esac
+[ $want = on ] && cmd=$FP_VPN_UP_CMD || cmd=$FP_VPN_DOWN_CMD
+if [ $DRY = 1 ]; then echo "would run: $cmd   (now: $now)"; log "DRY-RUN $want (was $now)"; exit 0; fi
+log "$want requested (was $now)"
+timeout 60 sh -c "$cmd" >/dev/null 2>&1; rc=$?
+i=0; while [ $i -lt 20 ]; do s=$(state); [ $want = on ] && [ "$s" = Connected ] && break; [ $want = off ] && [ "$s" != Connected ] && break; sleep 1; i=$((i+1)); done
+s=$(state); log "$want rc=$rc now $s"
+[ "$s" = Connected ] && { echo on > "$STATE.$$"; mv -f "$STATE.$$" "$STATE"; } || { : > "$STATE.$$"; mv -f "$STATE.$$" "$STATE"; }
+if [ $want = on ] && [ "$s" != Connected ]; then popup "$FP_VPN_NAME did not connect (state: ${s:-unknown})." error; exit 1; fi
+popup "$FP_VPN_NAME: ${s:-unknown}"

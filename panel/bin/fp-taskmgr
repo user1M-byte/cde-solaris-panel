@@ -1,0 +1,8 @@
+#!/bin/sh
+# fp-taskmgr - Task Manager for the Front Panel column. uses sdtprocess if present, else:
+# htop in a dtterm (an optional ~/bin/htop wrapper is used if present), else xfce4-taskmanager.
+if [ -x /usr/dt/bin/sdtprocess ]; then exec /usr/dt/bin/sdtprocess
+elif command -v htop >/dev/null; then
+    H=$HOME/bin/htop; [ -x "$H" ] || H=htop
+    exec /usr/dt/bin/dtterm -title "Task Manager" -geometry 120x36 -e "$H"
+else exec xfce4-taskmanager; fi

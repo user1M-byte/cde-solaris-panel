@@ -1,0 +1,14 @@
+#!/bin/sh
+# fp-vpn-watch - keeps ~/.dt/vpn-state/on non-empty while the VPN reports "Connected".
+# Read-only (runs only FP_VPN_STATUS_CMD); exits quietly if no VPN is configured.
+. "$HOME/bin/fp-conf"
+[ -n "${FP_VPN_STATUS_CMD:-}" ] || exit 0
+STATE_DIR=${FP_VPN_STATE_DIR:-$HOME/.dt/vpn-state}; STATE=$STATE_DIR/on
+mkdir -p "$STATE_DIR"; exec 9>"$STATE_DIR/.watch.lock"; flock -n 9 || exit 0
+echo $$ > "$STATE_DIR/watch.pid"
+while :; do
+    s=$(timeout 10 sh -c "$FP_VPN_STATUS_CMD" 2>/dev/null | head -1)
+    if [ "$s" = Connected ]; then [ -s "$STATE" ] || { echo on > "$STATE.$$" && mv -f "$STATE.$$" "$STATE"; }
+    else { [ -e "$STATE" ] && [ ! -s "$STATE" ]; } || { : > "$STATE.$$" && mv -f "$STATE.$$" "$STATE"; }; fi
+    sleep 15
+done

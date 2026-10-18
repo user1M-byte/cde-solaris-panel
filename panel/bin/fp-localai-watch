@@ -1,0 +1,20 @@
+#!/bin/sh
+# fp-localai-watch - keeps ~/.dt/localai-state/on in sync with the services listed in
+# panel.conf (FP_SVC_*), so the panel icon is right even when they change elsewhere.
+# Read-only: never starts or stops anything. Single instance (flock), 20 s poll.
+. "$HOME/bin/fp-conf"
+STATE_DIR=${FP_LOCALAI_STATE_DIR:-$HOME/.dt/localai-state}; STATE=$STATE_DIR/on
+XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}; export XDG_RUNTIME_DIR
+mkdir -p "$STATE_DIR"; exec 9>"$STATE_DIR/.watch.lock"; flock -n 9 || exit 0
+echo $$ > "$STATE_DIR/watch.pid"
+is_on() {
+    for u in $FP_SVC_SYSTEM_UNITS; do systemctl is-active --quiet "$u" 2>/dev/null && return 0; done
+    for u in $FP_SVC_USER_UNITS; do systemctl --user is-active --quiet "$u" 2>/dev/null && return 0; done
+    for c in $FP_SVC_CONTAINERS; do [ -n "$(timeout 10 docker ps -q --filter "name=^${c}\$" 2>/dev/null)" ] && return 0; done
+    return 1
+}
+while :; do
+    if is_on; then [ -s "$STATE" ] || { echo on > "$STATE.$$" && mv -f "$STATE.$$" "$STATE"; }
+    else { [ -e "$STATE" ] && [ ! -s "$STATE" ]; } || { : > "$STATE.$$" && mv -f "$STATE.$$" "$STATE"; }; fi
+    sleep 20
+done
